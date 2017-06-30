@@ -13,13 +13,13 @@
         <span class="icon-bar"></span>
         <span class="icon-bar"></span>
       </button>
-      <a class="navbar-brand" href="{{ url_for('index') }}">Aliments</a>
+      <a class="navbar-brand" href="{{ url_for('index') }}">Ma Santé</a>
     </div>
     <div class="navbar-collapse collapse">
       <ul class="nav navbar-nav">
         <li><a href="{{ url_for('index') }}">Acceuil</a></li>
         {% if session['user_email'] %}
-          <li><a href="{{ url_for('list_aliments') }}">Pression artérielle</a></li>
+          <li><a href="{{ url_for('list_mesures_pa') }}">Pression artérielle</a></li>
           <li><a href="{{ url_for('logout') }}">Déconnecter</a></li>
         {% else %}
           <li><a href="{{ url_for('login') }}">Connecter</a></li>

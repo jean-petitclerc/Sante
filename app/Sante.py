@@ -2,7 +2,8 @@ from flask import Flask, session, redirect, url_for, request, render_template, f
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_bootstrap import Bootstrap
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, TextAreaField, BooleanField, SubmitField, IntegerField, SelectField
+from wtforms import StringField, PasswordField, TextAreaField, BooleanField, SubmitField, IntegerField, SelectField, \
+    DateTimeField
 from wtforms.validators import DataRequired, Email, EqualTo, NumberRange  # Length, NumberRange
 from flask_script import Manager
 from flask_sqlalchemy import SQLAlchemy
@@ -44,6 +45,26 @@ class AdminUser(db.Model):
         return '<user: {}>'.format(self.user_email)
 
 
+class MesurePA(db.Model):
+    __tablename__ = 'tmesure_pa'
+    mes_id = db.Column(db.Integer(), primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer(), nullable=False)
+    mes_ts = db.Column(db.DateTime(), nullable=False)
+    pa_systolique = db.Column(db.Integer(), nullable=False)
+    pa_diastolique = db.Column(db.Integer(), nullable=False)
+    freq_cardiaque = db.Column(db.Integer(), nullable=False)
+
+    def __init__(self, user_id, mes_ts, pa_sysstolique, pa_diastolique, freq_cardiaque):
+        self.user_id = user_id
+        self.mes_ts = mes_ts
+        self.pa_systolique = pa_sysstolique
+        self.pa_diastolique = pa_diastolique
+        self.freq_cardiaque = freq_cardiaque
+
+    def __repr__(self):
+        return '<mes_pa: {}>'.format(self.mes_id)
+
+
 # Formulaire web pour l'écran de login
 class LoginForm(FlaskForm):
     email = StringField('Courriel', validators=[DataRequired(), Email(message='Le courriel est invalide.')])
@@ -65,6 +86,18 @@ class RegisterForm(FlaskForm):
                                 EqualTo('password_2', message='Les mots de passe doivent être identiques.')])
     password_2 = PasswordField('Confirmation')
     submit = SubmitField('S\'enrégistrer')
+
+
+# Formulaire pour entrer une mesure de pression artérielle
+class AjtMesurePAForm(FlaskForm):
+    mes_ts = DateTimeField('Temps de la Mesure')
+    pa_systolique = IntegerField('Pression Systolique',
+                                 validators=[DataRequired(message='La pression systolique est requise.')])
+    pa_diastolique = IntegerField('Pression Diastolique',
+                                  validators=[DataRequired(message='La pression diastolique est requise.')])
+    freq_cardiaque = IntegerField('Fréquence Cardiaque',
+                                  validators=[DataRequired(message='La fréquence cardiaque est requise.')])
+    submit = SubmitField('Ajouter')
 
 
 # Custom error pages
@@ -109,6 +142,7 @@ def login():
 @app.route('/logout')
 def logout():
     app.logger.debug('Entering logout()')
+    session.pop('user_id', None)
     session.pop('first_name', None)
     session.pop('last_name', None)
     session.pop('user_email', None)
@@ -164,6 +198,61 @@ def user_exists(user_email):
         return True
 
 
+@app.route('/list_mesures_pa')
+def list_mesures_pa():
+    if not logged_in():
+        return redirect(url_for('login'))
+    user_id = session.get('user_id')
+    mesures_pa = MesurePA.query.filter_by(user_id=user_id).order_by(MesurePA.mes_ts).all()
+    return render_template('list_mesures_pa.html', mesures_pa=mesures_pa)
+
+
+@app.route('/ajt_mesure_pa', methods=['GET', 'POST'])
+def ajt_mesure_pa():
+    if not logged_in():
+        return redirect(url_for('login'))
+    app.logger.debug('Entering ajt_mesure')
+    form = AjtMesurePAForm()
+    app.logger.debug('form assigned')
+    if form.validate_on_submit():
+        app.logger.debug('Validated')
+        user_id = session.get('user_id')
+        app.logger.debug('Before getting form data')
+        # mes_ts = request.form['mes_ts']
+        # pa_systolique = request.form['pa_systolique']
+        # pa_diastolique = request.form['pa_diastolique']
+        # freq_cardiaque = request.form['freq_cardiaque']
+        mes_ts = form.mes_ts.data
+        pa_systolique = form.pa_systolique.data
+        pa_diastolique = form.pa_diastolique.data
+        freq_cardiaque = form.freq_cardiaque.data
+        app.logger.debug('Calling db_ajt')
+        if db_ajt_mesure_pa(user_id, mes_ts, pa_systolique, pa_diastolique, freq_cardiaque):
+            app.logger.debug('Ajout ds BD OK')
+            flash("La mesure a été ajoutée.")
+            return redirect(url_for('list_mesures_pa'))
+        else:
+            app.logger.debug('Ajout ds la BD - Echec')
+            flash('Une erreur de base de données est survenue.')
+            abort(500)
+    form.mes_ts.data = datetime.now()
+    return render_template('ajt_mesure_pa.html', form=form)
+
+
+@app.route('/mod_mesure_pa/<int:mes_id>', methods=['GET', 'POST'])
+def mod_mesure_pa(mes_id):
+    if not logged_in():
+        return redirect(url_for('login'))
+    abort(404)
+
+
+@app.route('/sup_mesure_pa/<int:mes_id>', methods=['GET', 'POST'])
+def sup_mesure_pa(mes_id):
+    if not logged_in():
+        return redirect(url_for('login'))
+    abort(404)
+
+
 # Validate if a user is defined in tadmin_user with the proper password.
 def db_validate_user(user_email, password):
     user = AdminUser.query.filter_by(user_email=user_email).first()
@@ -176,6 +265,7 @@ def db_validate_user(user_email, password):
         return False
 
     if check_password_hash(user.user_pass, password):
+        session['user_id'] = user.user_id
         session['user_email'] = user.user_email
         session['first_name'] = user.first_name
         session['last_name'] = user.last_name
@@ -193,6 +283,17 @@ def change_password(user_email, new_password):
         user.user_pass = generate_password_hash(new_password)
         db.session.commit()
         flash("Mot de passe changé.")
+
+
+def db_ajt_mesure_pa(user_id, mes_ts, pa_systolique, pa_diastolique, freq_cardiaque):
+    m = MesurePA(user_id, mes_ts, pa_systolique, pa_diastolique, freq_cardiaque)
+    try:
+        db.session.add(m)
+        db.session.commit()
+    except Exception as e:
+        app.logger.error('DB Error' + str(e))
+        return False
+    return True
 
 
 # Start the server for the application

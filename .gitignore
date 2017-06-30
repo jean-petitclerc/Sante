@@ -2,6 +2,7 @@
 
 venv/
 app/config/
+app/data/
 .idea/
 
 ### Python template

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block page_content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Liste des Mesures de la Pression Artérielle</h1>
+    </div>
+    <p>
+        {% if mesures_pa %}
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>Date et Heure</th>
+                    <th>Pression Systolique</th>
+                    <th>Pression Diastolique</th>
+                    <th>Fréquence Cardiaque</th>
+                    <th class="text-center">Modifier</th>
+                    <th class="text-center">Supprimer</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in mesures_pa %}
+                    <tr>
+                        <td>{{ m['mes_ts'] }}</td>
+                        <td>{{ m['pa_systolique'] }}</td>
+                        <td>{{ m['pa_diastolique'] }}</td>
+                        <td>{{ m['freq_cardiaque'] }}</td>
+                        <td class="text-center"><a href="{{ url_for('mod_mesure_pa', mes_id=m['mes_id']) }}"
+                            class="btn btn-primary btn-xs" data-title="Modifier"><span class="glyphicon glyphicon-pencil"></span></a></td>
+                        <td class="text-center"><a href="{{ url_for('sup_mesure_pa', mes_id=m['mes_id']) }}"
+                            class="btn btn-danger btn-xs" data-title="Supprimer"><span class="glyphicon glyphicon-trash"></span></a></td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+            <em>Il n'y a pas de mesure dans la base de données</em>
+            <p>
+                Cliquer&nbsp<a href="{{ url_for('ajt_mesure_pa') }}">ici</a>&nbsp pour en ajouter une.
+            </p>
+        {% endif %}
+    </p>
+    <a href="{{ url_for('ajt_mesure_pa') }}" class="btn btn-default">Ajouter une mesure de pression artérielle</a>
+    <a href="{{ url_for('index') }}" class="btn btn-default">Retour</a>
+</div>
+{% endblock %}
