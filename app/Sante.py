@@ -5,6 +5,7 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, TextAreaField, BooleanField, SubmitField, IntegerField, SelectField, \
     DateTimeField
 from wtforms.validators import DataRequired, Email, EqualTo, NumberRange  # Length, NumberRange
+from wtforms.fields.html5 import DateField
 from flask_script import Manager
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
@@ -47,7 +48,7 @@ class AdminUser(db.Model):
 
 class MesurePA(db.Model):
     __tablename__ = 'tmesure_pa'
-    mes_id = db.Column(db.Integer(), primary_key=True, autoincrement=True)
+    id_mes = db.Column(db.Integer(), primary_key=True, autoincrement=True)
     user_id = db.Column(db.Integer(), nullable=False)
     mes_ts = db.Column(db.DateTime(), nullable=False)
     pa_systolique = db.Column(db.Integer(), nullable=False)
@@ -62,7 +63,7 @@ class MesurePA(db.Model):
         self.freq_cardiaque = freq_cardiaque
 
     def __repr__(self):
-        return '<mes_pa: {}>'.format(self.mes_id)
+        return '<mes_pa: {}>'.format(self.id_mes)
 
 
 # Formulaire web pour l'écran de login
@@ -89,7 +90,8 @@ class RegisterForm(FlaskForm):
 
 
 # Formulaire pour entrer une mesure de pression artérielle
-class AjtMesurePAForm(FlaskForm):
+class MAJMesurePAForm(FlaskForm):
+    mes_dt = DateField('DatePicker', format='%Y-%m-%d')
     mes_ts = DateTimeField('Temps de la Mesure')
     pa_systolique = IntegerField('Pression Systolique',
                                  validators=[DataRequired(message='La pression systolique est requise.')])
@@ -97,7 +99,11 @@ class AjtMesurePAForm(FlaskForm):
                                   validators=[DataRequired(message='La pression diastolique est requise.')])
     freq_cardiaque = IntegerField('Fréquence Cardiaque',
                                   validators=[DataRequired(message='La fréquence cardiaque est requise.')])
-    submit = SubmitField('Ajouter')
+
+
+# Formulaire pour confirmer la suppression d'une mesure de pression artérielle
+class SupMesurePAForm(FlaskForm):
+    submit = SubmitField('Supprimer')
 
 
 # Custom error pages
@@ -212,16 +218,12 @@ def ajt_mesure_pa():
     if not logged_in():
         return redirect(url_for('login'))
     app.logger.debug('Entering ajt_mesure')
-    form = AjtMesurePAForm()
+    form = MAJMesurePAForm()
     app.logger.debug('form assigned')
     if form.validate_on_submit():
         app.logger.debug('Validated')
         user_id = session.get('user_id')
         app.logger.debug('Before getting form data')
-        # mes_ts = request.form['mes_ts']
-        # pa_systolique = request.form['pa_systolique']
-        # pa_diastolique = request.form['pa_diastolique']
-        # freq_cardiaque = request.form['freq_cardiaque']
         mes_ts = form.mes_ts.data
         pa_systolique = form.pa_systolique.data
         pa_diastolique = form.pa_diastolique.data
@@ -239,18 +241,55 @@ def ajt_mesure_pa():
     return render_template('ajt_mesure_pa.html', form=form)
 
 
-@app.route('/mod_mesure_pa/<int:mes_id>', methods=['GET', 'POST'])
-def mod_mesure_pa(mes_id):
+@app.route('/mod_mesure_pa/<int:id_mes>', methods=['GET', 'POST'])
+def mod_mesure_pa(id_mes):
     if not logged_in():
         return redirect(url_for('login'))
-    abort(404)
+    session['id_mes'] = id_mes
+    form = MAJMesurePAForm()
+    if form.validate_on_submit():
+        app.logger.debug('Mettre a jour mesure pa')
+        mes_ts = form.mes_ts.data
+        pa_systolique = form.pa_systolique.data
+        pa_diastolique = form.pa_diastolique.data
+        freq_cardiaque = form.freq_cardiaque.data
+        if db_mod_mesure_pa(id_mes, mes_ts, pa_systolique, pa_diastolique, freq_cardiaque):
+            flash("La mesure a été modifiée.")
+        else:
+            flash("Quelque chose n'a pas fonctionné.")
+        return redirect(url_for('list_mesures_pa'))
+    else:
+        mes = MesurePA.query.get(id_mes)
+        if mes:
+            form.mes_ts.data = mes.mes_ts
+            form.pa_systolique.data = mes.pa_systolique
+            form.pa_diastolique.data = mes.pa_diastolique
+            form.freq_cardiaque.data = mes.freq_cardiaque
+            return render_template("mod_mesure_pa.html", form=form, mes=mes)
+        else:
+            flash("L'information n'a pas pu être retrouvée.")
+            return redirect(url_for('list_mesures_pa'))
 
 
-@app.route('/sup_mesure_pa/<int:mes_id>', methods=['GET', 'POST'])
-def sup_mesure_pa(mes_id):
+@app.route('/sup_mesure_pa/<int:id_mes>', methods=['GET', 'POST'])
+def sup_mesure_pa(id_mes):
     if not logged_in():
         return redirect(url_for('login'))
-    abort(404)
+    form = SupMesurePAForm()
+    if form.validate_on_submit():
+        app.logger.debug('effacer un aliment')
+        if db_sup_mesure_pa(id_mes):
+            flash("La mesure a été effacée.")
+        else:
+            flash("Quelque chose n'a pas fonctionné.")
+        return redirect(url_for('list_mesures_pa'))
+    else:
+        mes = MesurePA.query.get(id_mes)
+        if mes:
+            return render_template('sup_mesure_pa.html', form=form, mes=mes)
+        else:
+            flash("L'information n'a pas pu être retrouvée.")
+            return redirect(url_for('list_mesures_pa'))
 
 
 # Validate if a user is defined in tadmin_user with the proper password.
@@ -286,9 +325,34 @@ def change_password(user_email, new_password):
 
 
 def db_ajt_mesure_pa(user_id, mes_ts, pa_systolique, pa_diastolique, freq_cardiaque):
-    m = MesurePA(user_id, mes_ts, pa_systolique, pa_diastolique, freq_cardiaque)
+    mes = MesurePA(user_id, mes_ts, pa_systolique, pa_diastolique, freq_cardiaque)
     try:
-        db.session.add(m)
+        db.session.add(mes)
+        db.session.commit()
+    except Exception as e:
+        app.logger.error('DB Error' + str(e))
+        return False
+    return True
+
+
+def db_mod_mesure_pa(id_mes, mes_ts, pa_systolique, pa_diastolique, freq_cardiaque):
+    mes = MesurePA.query.get(id_mes)
+    mes.mes_ts = mes_ts
+    mes.pa_systolique = pa_systolique
+    mes.pa_diastolique = pa_diastolique
+    mes.freq_cardiaque = freq_cardiaque
+    try:
+        db.session.commit()
+    except Exception as e:
+        app.logger.error('DB Error' + str(e))
+        return False
+    return True
+
+
+def db_sup_mesure_pa(id_mes):
+    mes = MesurePA.query.get(id_mes)
+    try:
+        db.session.delete(mes)
         db.session.commit()
     except Exception as e:
         app.logger.error('DB Error' + str(e))

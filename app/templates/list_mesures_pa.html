@@ -18,15 +18,15 @@
                 </tr>
             </thead>
             <tbody>
-                {% for m in mesures_pa %}
+                {% for mes in mesures_pa %}
                     <tr>
-                        <td>{{ m['mes_ts'] }}</td>
-                        <td>{{ m['pa_systolique'] }}</td>
-                        <td>{{ m['pa_diastolique'] }}</td>
-                        <td>{{ m['freq_cardiaque'] }}</td>
-                        <td class="text-center"><a href="{{ url_for('mod_mesure_pa', mes_id=m['mes_id']) }}"
+                        <td>{{ mes['mes_ts'] }}</td>
+                        <td>{{ mes['pa_systolique'] }}</td>
+                        <td>{{ mes['pa_diastolique'] }}</td>
+                        <td>{{ mes['freq_cardiaque'] }}</td>
+                        <td class="text-center"><a href="{{ url_for('mod_mesure_pa', id_mes=mes['id_mes']) }}"
                             class="btn btn-primary btn-xs" data-title="Modifier"><span class="glyphicon glyphicon-pencil"></span></a></td>
-                        <td class="text-center"><a href="{{ url_for('sup_mesure_pa', mes_id=m['mes_id']) }}"
+                        <td class="text-center"><a href="{{ url_for('sup_mesure_pa', id_mes=mes['id_mes']) }}"
                             class="btn btn-danger btn-xs" data-title="Supprimer"><span class="glyphicon glyphicon-trash"></span></a></td>
                     </tr>
                 {% endfor %}

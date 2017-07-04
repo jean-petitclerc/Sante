@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "bootstrap/wtf.html" as wtf %}
+
+{% block page_content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Supprimer une Mesure de Pression Artérielle</h1>
+    </div>
+
+    <form class="form" method="post" role="form">
+        {{ form.hidden_tag() }}
+        {{ wtf.form_errors(form, hiddens="only") }}
+        <h4>
+            <em>Voulez-vous vraiment supprimer cette mesure?</em>
+            <ul>
+                <li>Date et Heure: {{ mes.mes_ts }}</li>
+                <li>Pression Systolique: {{ mes.pa_systolique }}</li>
+                <li>Pression Diastolique: {{ mes.pa_diastolique }}</li>
+                <li>Fréquence Cardiaque: {{ mes.freq_cardiaque }}</li>
+            </ul>
+        </h4>
+        <input class="btn btn-default" id="submit" name="submit" type="submit" value="Supprimer">
+        <a href="{{ url_for('list_mesures_pa') }}" class="btn btn-default">Annuler</a>
+    </form>
+</div>
+{% endblock %}
