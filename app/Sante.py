@@ -9,6 +9,7 @@ from wtforms.fields.html5 import DateField
 from flask_script import Manager
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+import pygal
 
 app = Flask(__name__)
 manager = Manager(app)
@@ -210,7 +211,17 @@ def list_mesures_pa():
         return redirect(url_for('login'))
     user_id = session.get('user_id')
     mesures_pa = MesurePA.query.filter_by(user_id=user_id).order_by(MesurePA.mes_ts).all()
-    return render_template('list_mesures_pa.html', mesures_pa=mesures_pa)
+    chart = pygal.Line(title="Graphique", x_label_rotation=90)
+    x = [mes.mes_ts.strftime("%Y-%m-%d %H:%M") for mes in mesures_pa]
+    ysys = [mes.pa_systolique for mes in mesures_pa]
+    ydia = [mes.pa_diastolique for mes in mesures_pa]
+    yfrq = [mes.freq_cardiaque for mes in mesures_pa]
+    chart.x_labels = x
+    chart.add('Diastolique', ydia)
+    chart.add('Systolique', ysys)
+    chart.add('Freq. Card.', yfrq)
+
+    return render_template('list_mesures_pa.html', mesures_pa=mesures_pa, chart=chart.render())
 
 
 @app.route('/ajt_mesure_pa', methods=['GET', 'POST'])
