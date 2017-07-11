@@ -209,14 +209,20 @@ def user_exists(user_email):
 def list_mesures_pa():
     if not logged_in():
         return redirect(url_for('login'))
+    MAX_SYSTOLIQUE = 130
+    MAX_DIASTOLIQUE = 80
     user_id = session.get('user_id')
     mesures_pa = MesurePA.query.filter_by(user_id=user_id).order_by(MesurePA.mes_ts).all()
-    chart = pygal.Line(title="Graphique", x_label_rotation=90)
+    chart = pygal.Line(title="Graphique", x_label_rotation=90, disable_xml_declaration=True)
     x = [mes.mes_ts.strftime("%Y-%m-%d %H:%M") for mes in mesures_pa]
+    msys = [MAX_SYSTOLIQUE for mes in mesures_pa]
+    mdia = [MAX_DIASTOLIQUE for mes in mesures_pa]
     ysys = [mes.pa_systolique for mes in mesures_pa]
     ydia = [mes.pa_diastolique for mes in mesures_pa]
     yfrq = [mes.freq_cardiaque for mes in mesures_pa]
     chart.x_labels = x
+    chart.add('MAX Diastolique', mdia)
+    chart.add('MAX Systolique', msys)
     chart.add('Diastolique', ydia)
     chart.add('Systolique', ysys)
     chart.add('Freq. Card.', yfrq)
