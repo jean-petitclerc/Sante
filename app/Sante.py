@@ -8,6 +8,7 @@ from wtforms.validators import DataRequired, Email, EqualTo, NumberRange  # Leng
 from wtforms.fields.html5 import DateField
 from flask_script import Manager
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import desc
 from datetime import datetime
 import pygal
 
@@ -226,7 +227,7 @@ def list_mesures_pa():
     chart.add('Diastolique', ydia)
     chart.add('Systolique', ysys)
     chart.add('Freq. Card.', yfrq)
-
+    mesures_pa = MesurePA.query.filter_by(user_id=user_id).order_by(desc(MesurePA.mes_ts)).all()
     return render_template('list_mesures_pa.html', mesures_pa=mesures_pa, chart=chart.render())
 
 
