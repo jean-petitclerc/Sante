@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_bootstrap import Bootstrap
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, TextAreaField, BooleanField, SubmitField, IntegerField, SelectField, \
-    DateTimeField
+                    DateTimeField, DecimalField
 from wtforms.validators import DataRequired, Email, EqualTo, NumberRange  # Length, NumberRange
 from wtforms.fields.html5 import DateField
 from flask_script import Manager
@@ -11,6 +11,11 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import desc
 from datetime import datetime
 import pygal
+from bokeh.plotting import figure
+from bokeh.embed import components
+from bokeh.models import DatetimeTickFormatter
+from bokeh.palettes import Spectral6
+from math import pi
 
 app = Flask(__name__)
 manager = Manager(app)
@@ -68,6 +73,22 @@ class MesurePA(db.Model):
         return '<mes_pa: {}>'.format(self.id_mes)
 
 
+class MesurePoids(db.Model):
+    __tablename__ = 'tmesure_poids'
+    id_mes = db.Column(db.Integer(), primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer(), nullable=False)
+    mes_ts = db.Column(db.DateTime(), nullable=False)
+    poids = db.Column(db.Float(), nullable=False)
+
+    def __init__(self, user_id, mes_ts, poids):
+        self.user_id = user_id
+        self.mes_ts = mes_ts
+        self.poids = poids
+
+    def __repr__(self):
+        return '<mes_poids: {}>'.format(self.id_mes)
+
+
 # Formulaire web pour l'écran de login
 class LoginForm(FlaskForm):
     email = StringField('Courriel', validators=[DataRequired(), Email(message='Le courriel est invalide.')])
@@ -105,6 +126,18 @@ class MAJMesurePAForm(FlaskForm):
 
 # Formulaire pour confirmer la suppression d'une mesure de pression artérielle
 class SupMesurePAForm(FlaskForm):
+    submit = SubmitField('Supprimer')
+
+
+# Formulaire pour entrer une mesure de pression artérielle
+class MAJMesurePoidsForm(FlaskForm):
+    mes_dt = DateField('DatePicker', format='%Y-%m-%d')
+    mes_ts = DateTimeField('Temps de la Mesure')
+    poids = DecimalField('Poids', validators=[DataRequired(message='Le poids est requis.')])
+
+
+# Formulaire pour confirmer la suppression d'une mesure de pression artérielle
+class SupMesurePoidsForm(FlaskForm):
     submit = SubmitField('Supprimer')
 
 
@@ -214,21 +247,50 @@ def list_mesures_pa():
     MAX_DIASTOLIQUE = 80
     user_id = session.get('user_id')
     mesures_pa = MesurePA.query.filter_by(user_id=user_id).order_by(MesurePA.mes_ts).all()
-    chart = pygal.Line(title="Graphique", x_label_rotation=90, disable_xml_declaration=True)
-    x = [mes.mes_ts.strftime("%Y-%m-%d %H:%M") for mes in mesures_pa]
+    # chart = pygal.Line(title="Pression Artérielle", x_label_rotation=30, disable_xml_declaration=True)
+    #x = [mes.mes_ts.strftime("%Y-%m-%d %H:%M") for mes in mesures_pa]
+    xdt = [mes.mes_ts for mes in mesures_pa]
+
+    serie_dia = [(mes.mes_ts, mes.pa_diastolique) for mes in mesures_pa]
+    serie_sys = [(mes.mes_ts, mes.pa_systolique) for mes in mesures_pa]
+    serie_frq = [(mes.mes_ts, mes.freq_cardiaque) for mes in mesures_pa]
+    serie_mdia = [(mes.mes_ts, MAX_DIASTOLIQUE) for mes in mesures_pa]
+    serie_msys = [(mes.mes_ts, MAX_SYSTOLIQUE) for mes in mesures_pa]
+    chart = pygal.DateTimeLine(title="Pression Artérielle", height=400, disable_xml_declaration=True,
+                               # dynamic_print_values=True,
+                               truncate_legend=-1,
+                               x_label_rotation=35, truncate_label=-1,
+                               x_value_formatter=lambda dt: dt.strftime('%Y-%m-%d-%H:%M'))
+    chart.add("Diastolique", serie_dia)
+    chart.add("Systolique", serie_sys)
+    chart.add("Max. Diastolique", serie_mdia, show_dots=False)
+    chart.add("Max. Systolique", serie_msys, show_dots=False)
+    chart.add("Fréq. Cardiaque", serie_frq)
     msys = [MAX_SYSTOLIQUE for mes in mesures_pa]
     mdia = [MAX_DIASTOLIQUE for mes in mesures_pa]
     ysys = [mes.pa_systolique for mes in mesures_pa]
     ydia = [mes.pa_diastolique for mes in mesures_pa]
     yfrq = [mes.freq_cardiaque for mes in mesures_pa]
-    chart.x_labels = x
-    chart.add('MAX Diastolique', mdia)
-    chart.add('MAX Systolique', msys)
-    chart.add('Diastolique', ydia)
-    chart.add('Systolique', ysys)
-    chart.add('Freq. Card.', yfrq)
+
+    # create a new plot with a title and axis labels
+    TOOLS = "crosshair,xpan,wheel_zoom,box_zoom,reset,save,ywheel_pan"
+    plot = figure(title="Pression Artérielle", x_axis_type='datetime', x_axis_label='Date', y_axis_label='PA', tools=TOOLS,
+                  sizing_mode='scale_width', height=350)
+    plot.xaxis[0].formatter = DatetimeTickFormatter(days='%Y-%m-%d')
+    plot.xaxis.major_label_orientation = pi / 4
+
+    # add a line renderer with legend and line thickness
+    plot.line(xdt, msys, legend_label="Max Systolique", line_width=2, line_color=Spectral6[0])
+    plot.line(xdt, mdia, legend_label="Max Diastolique", line_width=2, line_color=Spectral6[1])
+    plot.line(xdt, ysys, legend_label="Systolique", line_width=2, line_color=Spectral6[2])
+    plot.line(xdt, ydia, legend_label="Diastolique", line_width=2, line_color=Spectral6[3])
+    plot.line(xdt, yfrq, legend_label="Fréquence Cardiaque", line_width=2, line_color=Spectral6[4])
+    plot.legend.click_policy = "hide"
+
+    script, div = components(plot)
+
     mesures_pa = MesurePA.query.filter_by(user_id=user_id).order_by(desc(MesurePA.mes_ts)).all()
-    return render_template('list_mesures_pa.html', mesures_pa=mesures_pa, chart=chart.render())
+    return render_template('list_mesures_pa.html', mesures_pa=mesures_pa, chart=chart.render(), script=script, div=div)
 
 
 @app.route('/ajt_mesure_pa', methods=['GET', 'POST'])
@@ -310,6 +372,115 @@ def sup_mesure_pa(id_mes):
             return redirect(url_for('list_mesures_pa'))
 
 
+@app.route('/list_mesures_poids')
+def list_mesures_poids():
+    if not logged_in():
+        return redirect(url_for('login'))
+    user_id = session.get('user_id')
+    mesures_poids = MesurePoids.query.filter_by(user_id=user_id).order_by(MesurePoids.mes_ts).all()
+    # chartx = pygal.Line(title="Poids", x_label_rotation=30, disable_xml_declaration=True)
+    x = [mes.mes_ts.strftime("%Y-%m-%d %H:%M") for mes in mesures_poids]
+    xdt = [mes.mes_ts for mes in mesures_poids]
+    ypds = [mes.poids for mes in mesures_poids]
+    # chartx.x_labels = x
+    # chartx.add('Poids', ypds)
+
+    # Préférable d'utiliser un graphe DateTimeLine que Line.
+    serie = [(mes.mes_ts, mes.poids) for mes in mesures_poids]
+    chart = pygal.DateTimeLine(title="Poids", height=300, disable_xml_declaration=True, dynamic_print_values=True,
+        x_label_rotation=35, truncate_label=-1,
+        x_value_formatter=lambda dt: dt.strftime('%Y-%m-%d-%H:%M'))
+    chart.add("Poids", serie)
+
+    # create a new plot with a title and axis labels
+    TOOLS = "crosshair,xpan,wheel_zoom,box_zoom,reset,save,ywheel_pan"
+    plot = figure(title="Poids", x_axis_type='datetime', x_axis_label='Date', y_axis_label='Poids', tools=TOOLS,
+                  sizing_mode='scale_width', height=350)
+    plot.xaxis[0].formatter = DatetimeTickFormatter(days='%Y-%m-%d', hours='-%H-%M')
+    plot.xaxis.major_label_orientation = pi / 5
+
+    # add a line renderer with legend and line thickness
+    plot.line(xdt, ypds, legend_label="Poids", line_width=2)
+    plot.legend.click_policy = "hide"
+
+    script, div = components(plot)
+    mesures_poids = MesurePoids.query.filter_by(user_id=user_id).order_by(desc(MesurePoids.mes_ts)).all()
+    return render_template('list_mesures_poids.html', mesures_poids=mesures_poids, chart=chart.render(), script=script, div=div)
+
+
+@app.route('/ajt_mesure_poids', methods=['GET', 'POST'])
+def ajt_mesure_poids():
+    if not logged_in():
+        return redirect(url_for('login'))
+    app.logger.debug('Entering ajt_mesure')
+    form = MAJMesurePoidsForm()
+    app.logger.debug('form assigned')
+    if form.validate_on_submit():
+        app.logger.debug('Validated')
+        user_id = session.get('user_id')
+        app.logger.debug('Before getting form data')
+        mes_ts = form.mes_ts.data
+        poids = form.poids.data
+        app.logger.debug('Calling db_ajt')
+        if db_ajt_mesure_poids(user_id, mes_ts, poids):
+            app.logger.debug('Ajout ds BD OK')
+            flash("La mesure a été ajoutée.")
+            return redirect(url_for('list_mesures_poids'))
+        else:
+            app.logger.debug('Ajout ds la BD - Echec')
+            flash('Une erreur de base de données est survenue.')
+            abort(500)
+    form.mes_ts.data = datetime.now()
+    return render_template('ajt_mesure_poids.html', form=form)
+
+
+@app.route('/mod_mesure_poids/<int:id_mes>', methods=['GET', 'POST'])
+def mod_mesure_poids(id_mes):
+    if not logged_in():
+        return redirect(url_for('login'))
+    session['id_mes'] = id_mes
+    form = MAJMesurePoidsForm()
+    if form.validate_on_submit():
+        app.logger.debug('Mettre a jour mesure poids')
+        mes_ts = form.mes_ts.data
+        poids = form.poids.data
+        if db_mod_mesure_poids(id_mes, mes_ts, poids):
+            flash("La mesure a été modifiée.")
+        else:
+            flash("Quelque chose n'a pas fonctionné.")
+        return redirect(url_for('list_mesures_poids'))
+    else:
+        mes = MesurePoids.query.get(id_mes)
+        if mes:
+            form.mes_ts.data = mes.mes_ts
+            form.poids.data = mes.poids
+            return render_template("mod_mesure_poids.html", form=form, mes=mes)
+        else:
+            flash("L'information n'a pas pu être retrouvée.")
+            return redirect(url_for('list_mesures_poids'))
+
+
+@app.route('/sup_mesure_poids/<int:id_mes>', methods=['GET', 'POST'])
+def sup_mesure_poids(id_mes):
+    if not logged_in():
+        return redirect(url_for('login'))
+    form = SupMesurePoidsForm()
+    if form.validate_on_submit():
+        app.logger.debug('effacer une mesure')
+        if db_sup_mesure_poids(id_mes):
+            flash("La mesure a été effacée.")
+        else:
+            flash("Quelque chose n'a pas fonctionné.")
+        return redirect(url_for('list_mesures_poids'))
+    else:
+        mes = MesurePoids.query.get(id_mes)
+        if mes:
+            return render_template('sup_mesure_poids.html', form=form, mes=mes)
+        else:
+            flash("L'information n'a pas pu être retrouvée.")
+            return redirect(url_for('list_mesures_poids'))
+
+
 # Validate if a user is defined in tadmin_user with the proper password.
 def db_validate_user(user_email, password):
     user = AdminUser.query.filter_by(user_email=user_email).first()
@@ -369,6 +540,39 @@ def db_mod_mesure_pa(id_mes, mes_ts, pa_systolique, pa_diastolique, freq_cardiaq
 
 def db_sup_mesure_pa(id_mes):
     mes = MesurePA.query.get(id_mes)
+    try:
+        db.session.delete(mes)
+        db.session.commit()
+    except Exception as e:
+        app.logger.error('DB Error' + str(e))
+        return False
+    return True
+
+
+def db_ajt_mesure_poids(user_id, mes_ts, poids):
+    mes = MesurePoids(user_id, mes_ts, poids)
+    try:
+        db.session.add(mes)
+        db.session.commit()
+    except Exception as e:
+        app.logger.error('DB Error' + str(e))
+        return False
+    return True
+
+def db_mod_mesure_poids(id_mes, mes_ts, poids):
+    mes = MesurePoids.query.get(id_mes)
+    mes.mes_ts = mes_ts
+    mes.poids = poids
+    try:
+        db.session.commit()
+    except Exception as e:
+        app.logger.error('DB Error' + str(e))
+        return False
+    return True
+
+
+def db_sup_mesure_poids(id_mes):
+    mes = MesurePoids.query.get(id_mes)
     try:
         db.session.delete(mes)
         db.session.commit()
