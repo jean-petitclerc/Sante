@@ -247,8 +247,6 @@ def list_mesures_pa():
     MAX_DIASTOLIQUE = 80
     user_id = session.get('user_id')
     mesures_pa = MesurePA.query.filter_by(user_id=user_id).order_by(MesurePA.mes_ts).all()
-    # chart = pygal.Line(title="Pression Artérielle", x_label_rotation=30, disable_xml_declaration=True)
-    #x = [mes.mes_ts.strftime("%Y-%m-%d %H:%M") for mes in mesures_pa]
     xdt = [mes.mes_ts for mes in mesures_pa]
 
     serie_dia = [(mes.mes_ts, mes.pa_diastolique) for mes in mesures_pa]
@@ -256,10 +254,13 @@ def list_mesures_pa():
     serie_frq = [(mes.mes_ts, mes.freq_cardiaque) for mes in mesures_pa]
     serie_mdia = [(mes.mes_ts, MAX_DIASTOLIQUE) for mes in mesures_pa]
     serie_msys = [(mes.mes_ts, MAX_SYSTOLIQUE) for mes in mesures_pa]
-    chart = pygal.DateTimeLine(title="Pression Artérielle", height=400, disable_xml_declaration=True,
+    chart = pygal.DateTimeLine(title="Pression Artérielle",
+                               height=400,
+                               disable_xml_declaration=True,
                                # dynamic_print_values=True,
                                truncate_legend=-1,
-                               x_label_rotation=35, truncate_label=-1,
+                               x_label_rotation=35,
+                               truncate_label=-1,
                                x_value_formatter=lambda dt: dt.strftime('%Y-%m-%d-%H:%M'))
     chart.add("Diastolique", serie_dia)
     chart.add("Systolique", serie_sys)
@@ -286,7 +287,6 @@ def list_mesures_pa():
     plot.line(xdt, ydia, legend_label="Diastolique", line_width=2, line_color=Spectral6[3])
     plot.line(xdt, yfrq, legend_label="Fréquence Cardiaque", line_width=2, line_color=Spectral6[4])
     plot.legend.click_policy = "hide"
-
     script, div = components(plot)
 
     mesures_pa = MesurePA.query.filter_by(user_id=user_id).order_by(desc(MesurePA.mes_ts)).all()
@@ -378,18 +378,14 @@ def list_mesures_poids():
         return redirect(url_for('login'))
     user_id = session.get('user_id')
     mesures_poids = MesurePoids.query.filter_by(user_id=user_id).order_by(MesurePoids.mes_ts).all()
-    # chartx = pygal.Line(title="Poids", x_label_rotation=30, disable_xml_declaration=True)
-    x = [mes.mes_ts.strftime("%Y-%m-%d %H:%M") for mes in mesures_poids]
     xdt = [mes.mes_ts for mes in mesures_poids]
     ypds = [mes.poids for mes in mesures_poids]
-    # chartx.x_labels = x
-    # chartx.add('Poids', ypds)
 
     # Préférable d'utiliser un graphe DateTimeLine que Line.
     serie = [(mes.mes_ts, mes.poids) for mes in mesures_poids]
     chart = pygal.DateTimeLine(title="Poids", height=300, disable_xml_declaration=True, dynamic_print_values=True,
         x_label_rotation=35, truncate_label=-1,
-        x_value_formatter=lambda dt: dt.strftime('%Y-%m-%d-%H:%M'))
+        x_value_formatter=lambda dt: dt.strftime('%Y-%m-%d'))
     chart.add("Poids", serie)
 
     # create a new plot with a title and axis labels
