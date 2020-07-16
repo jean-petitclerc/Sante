@@ -21,6 +21,7 @@
         {% if session['user_email'] %}
           <li><a href="{{ url_for('list_mesures_pa') }}">Pression artérielle</a></li>
           <li><a href="{{ url_for('list_mesures_poids') }}">Poids</a></li>
+          <li><a href="{{ url_for('list_users') }}">Utilisateurs</a></li></li>
           <li><a href="{{ url_for('logout') }}">Déconnecter</a></li>
         {% else %}
           <li><a href="{{ url_for('login') }}">Connecter</a></li>

@@ -24,6 +24,7 @@ bootstrap = Bootstrap(app)
 # Read the configurations
 app.config.from_pyfile('config/config.py')
 # Contenu typique de config.py. Le vrai fichier devrait être changé.
+# ADMIN_EMAILID = 'jean.petitclerc@groupepp.com'
 # SQLALCHEMY_DATABASE_URI = 'sqlite:///data/sante.db'
 # SQLALCHEMY_TRACK_MODIFICATIONS=False
 # SECRET_KEY='NotSoSecretKey'
@@ -34,20 +35,23 @@ db = SQLAlchemy(app)
 
 # Database Model
 
-class AdminUser(db.Model):
-    __tablename__ = 'tadmin_user'
+class AppUser(db.Model):
+    __tablename__ = 'tapp_user'
     user_id = db.Column(db.Integer(), primary_key=True, autoincrement=True)
     first_name = db.Column(db.String(30), nullable=False)
     last_name = db.Column(db.String(30), nullable=False)
     user_email = db.Column(db.String(80), nullable=False, unique=True)
     user_pass = db.Column(db.String(100), nullable=False)
-    activated = db.Column(db.Boolean(), nullable=False, default=True)
+    activated_ts = db.Column(db.DateTime(), nullable=True)
+    audit_crt_ts = db.Column(db.DateTime(), nullable=False)
+    audit_upd_ts = db.Column(db.DateTime(), nullable=True)
 
-    def __init__(self, first_name, last_name, user_email, user_pass):
+    def __init__(self, first_name, last_name, user_email, user_pass, audit_crt_ts):
         self.first_name = first_name
         self.last_name = last_name
         self.user_email = user_email
         self.user_pass = user_pass
+        self.audit_crt_ts = audit_crt_ts
 
     def __repr__(self):
         return '<user: {}>'.format(self.user_email)
@@ -87,6 +91,11 @@ class MesurePoids(db.Model):
 
     def __repr__(self):
         return '<mes_poids: {}>'.format(self.id_mes)
+
+
+# Formulaire pour confirmer la suppression d'une entitée
+class DelEntityForm(FlaskForm):
+    submit = SubmitField('Supprimer')
 
 
 # Formulaire web pour l'écran de login
@@ -164,6 +173,7 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    # The method is GET when the form is displayed and POST to process the form
     app.logger.debug('Entering login()')
     form = LoginForm()
     if form.validate_on_submit():
@@ -175,7 +185,7 @@ def login():
             if request_pwd_change:
                 app.logger.debug("Changer le mot de passe")
                 new_password = request.form['password_1']
-                change_password(user_email, new_password)
+                db_change_password(user_email, new_password)
             return redirect(url_for('index'))
     return render_template('login.html', form=form)
 
@@ -216,27 +226,74 @@ def register():
         last_name = request.form['last_name']
         user_email = request.form['email']
         user_pass = generate_password_hash(request.form['password_1'])
-        if user_exists(user_email):
+        if db_user_exists(user_email):
             flash('Cet usager existe déjà. Veuillez vous connecter.')
             return redirect(url_for('login'))
         else:
-            user = AdminUser(first_name, last_name, user_email, user_pass)
-            db.session.add(user)
-            db.session.commit()
-            flash('Revenez quand votre compte sera activé.')
-            return redirect(url_for('index'))
+            if db_add_user(first_name, last_name, user_email, user_pass):
+                flash('Vous pourrez vous connecter quand votre usager sera activé.')
+                return redirect(url_for('login'))
+            else:
+                flash('Une erreur de base de données est survenue.')
+                abort(500)
     return render_template('register.html', form=form)
 
 
-def user_exists(user_email):
-    app.logger.debug('Entering user_exists with: ' + user_email)
-    user = AdminUser.query.filter_by(user_email=user_email).first()
-    if user is None:
-        app.logger.debug('user_exists returns False')
-        return False
+@app.route('/list_users')
+def list_users():
+    if not logged_in():
+        return redirect(url_for('login'))
+    try:
+        user_id = session.get('user_id')
+        admin_user = AppUser.query.filter_by(user_id=user_id, user_email=app.config.get('ADMIN_EMAILID')).first()
+        app_users = AppUser.query.order_by(AppUser.first_name).all()
+        return render_template('list_users.html', app_users=app_users, admin_user=admin_user)
+    except Exception as e:
+        app.logger.error('Error: ' + str(e))
+        return redirect(url_for('index'))
+
+
+@app.route('/act_user/<int:user_id>', methods=['GET', 'POST'])
+def act_user(user_id):
+    if not logged_in():
+        return redirect(url_for('login'))
+    if db_upd_user_status(user_id, 'A'):
+        flash("L'utilisateur est activé.")
     else:
-        app.logger.debug('user_exists returns True' + user[0])
-        return True
+        flash("Quelque chose n'a pas fonctionné.")
+    return redirect(url_for('list_users'))
+
+
+@app.route('/inact_user/<int:user_id>', methods=['GET', 'POST'])
+def inact_user(user_id):
+    if not logged_in():
+        return redirect(url_for('login'))
+    if db_upd_user_status(user_id, 'D'):
+        flash("L'utilisateur est désactivé.")
+    else:
+        flash("Quelque chose n'a pas fonctionné.")
+    return redirect(url_for('list_users'))
+
+
+@app.route('/del_user/<int:user_id>', methods=['GET', 'POST'])
+def del_user(user_id):
+    if not logged_in():
+        return redirect(url_for('login'))
+    form = DelEntityForm()
+    if form.validate_on_submit():
+        app.logger.debug('Deleting a user')
+        if db_del_user(user_id):
+            flash("L'utilisateur a été effacé.")
+        else:
+            flash("Quelque chose n'a pas fonctionné.")
+        return redirect(url_for('list_users'))
+    else:
+        user = db_user_by_id(user_id)
+        if user:
+            return render_template('del_user.html', form=form, user=user)
+        else:
+            flash("L'information n'a pas pu être retrouvée.")
+            return redirect(url_for('list_users'))
 
 
 @app.route('/list_mesures_pa')
@@ -275,8 +332,8 @@ def list_mesures_pa():
 
     # create a new plot with a title and axis labels
     TOOLS = "crosshair,xpan,wheel_zoom,box_zoom,reset,save,ywheel_pan"
-    plot = figure(title="Pression Artérielle", x_axis_type='datetime', x_axis_label='Date', y_axis_label='PA', tools=TOOLS,
-                  sizing_mode='scale_width', height=350)
+    plot = figure(title="Pression Artérielle", x_axis_type='datetime', x_axis_label='Date', y_axis_label='PA',
+                  tools=TOOLS, sizing_mode='scale_width', height=350)
     plot.xaxis[0].formatter = DatetimeTickFormatter(days='%Y-%m-%d')
     plot.xaxis.major_label_orientation = pi / 4
 
@@ -401,7 +458,8 @@ def list_mesures_poids():
 
     script, div = components(plot)
     mesures_poids = MesurePoids.query.filter_by(user_id=user_id).order_by(desc(MesurePoids.mes_ts)).all()
-    return render_template('list_mesures_poids.html', mesures_poids=mesures_poids, chart=chart.render(), script=script, div=div)
+    return render_template('list_mesures_poids.html', mesures_poids=mesures_poids, chart=chart.render(), script=script,
+                           div=div)
 
 
 @app.route('/ajt_mesure_poids', methods=['GET', 'POST'])
@@ -477,36 +535,117 @@ def sup_mesure_poids(id_mes):
             return redirect(url_for('list_mesures_poids'))
 
 
+# Database functions for AppUser
+def db_add_user(first_name, last_name, user_email, user_pass):
+    audit_crt_ts = datetime.now()
+    try:
+        user = AppUser(first_name, last_name, user_email, user_pass, audit_crt_ts)
+        if user_email == app.config.get('ADMIN_EMAILID'):
+            user.activated_ts = datetime.now()
+        db.session.add(user)
+        db.session.commit()
+        return True
+    except Exception as e:
+        app.logger.error('Error: ' + str(e))
+        return False
+
+
+def db_upd_user_status(user_id, status):
+    try:
+        user = AppUser.query.get(user_id)
+        if status == 'A':
+            user.activated_ts = datetime.now()
+        else:
+            user.activated_ts = None
+        db.session.commit()
+        return True
+    except Exception as e:
+        app.logger.error('Error: ' + str(e))
+        return False
+
+
+def db_user_exists(user_email):
+    app.logger.debug('Entering user_exists with: ' + user_email)
+    try:
+        user = AppUser.query.filter_by(user_email=user_email).first()
+        if user is None:
+            return False
+        else:
+            return True
+    except Exception as e:
+        app.logger.error('Error: ' + str(e))
+        return False
+
+
+def db_user_by_id(user_id):
+    try:
+        u = AppUser.query.get(user_id)
+        return u
+    except Exception as e:
+        app.logger.error('Error: ' + str(e))
+        return None
+
+
 # Validate if a user is defined in tadmin_user with the proper password.
 def db_validate_user(user_email, password):
-    user = AdminUser.query.filter_by(user_email=user_email).first()
-    if user is None:
-        flash("L'usager n'existe pas.")
+    try:
+        user = AppUser.query.filter_by(user_email=user_email).first()
+        if user is None:
+            flash("L'usager n'existe pas.")
+            return False
+
+        if not user.activated_ts:
+            flash("L'usager n'est pas activé.")
+            return False
+
+        if check_password_hash(user.user_pass, password):
+            session['user_id'] = user.user_id
+            session['user_email'] = user.user_email
+            session['first_name'] = user.first_name
+            session['last_name'] = user.last_name
+            return True
+        else:
+            flash("Mauvais mot de passe!")
+            return False
+    except Exception as e:
+        app.logger.error('Error: ' + str(e))
+        flash("Connection impossible. Une erreur interne s'est produite.")
         return False
 
-    if not user.activated:
-        flash("L'usager n'est pas activé.")
-        return False
 
-    if check_password_hash(user.user_pass, password):
-        session['user_id'] = user.user_id
-        session['user_email'] = user.user_email
-        session['first_name'] = user.first_name
-        session['last_name'] = user.last_name
-        return True
-    else:
-        flash("Mauvais mot de passe!")
-        return False
-
-
-def change_password(user_email, new_password):
-    user = AdminUser.query.filter_by(user_email=user_email).first()
-    if user is None:
-        flash("Mot de passe inchangé. L'usager n'a pas été retrouvé.")
-    else:
-        user.user_pass = generate_password_hash(new_password)
+def db_del_user(user_id):
+    try:
+        user = AppUser.query.get(user_id)
+        measures = MesurePA.query.filter_by(user_id=user_id).all()
+        for m in measures:
+            db.session.delete(m)
+        measures = MesurePoids.query.filter_by(user_id=user_id).all()
+        for m in measures:
+            db.session.delete(m)
+        db.session.delete(user)
         db.session.commit()
-        flash("Mot de passe changé.")
+    except Exception as e:
+        app.logger.error('Error: ' + str(e))
+        return False
+    return True
+
+
+def db_change_password(user_email, new_password):
+    try:
+        user = AppUser.query.filter_by(user_email=user_email).first()
+        if user is None:
+            flash("Mot de passe inchangé. L'usager n'a pas été retrouvé.")
+            return False
+        else:
+            user.user_pass = generate_password_hash(new_password)
+            user.audit_upd_ts = datetime.now()
+            db.session.commit()
+            flash("Mot de passe changé.")
+            return True
+    except Exception as e:
+        app.logger.error('Error: ' + str(e))
+        flash("Mot de passe inchangé. Une erreur interne s'est produite.")
+        return False
 
 
 def db_ajt_mesure_pa(user_id, mes_ts, pa_systolique, pa_diastolique, freq_cardiaque):
@@ -554,6 +693,7 @@ def db_ajt_mesure_poids(user_id, mes_ts, poids):
         app.logger.error('DB Error' + str(e))
         return False
     return True
+
 
 def db_mod_mesure_poids(id_mes, mes_ts, poids):
     mes = MesurePoids.query.get(id_mes)
