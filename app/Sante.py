@@ -45,6 +45,7 @@ class AppUser(db.Model):
     activated_ts = db.Column(db.DateTime(), nullable=True)
     audit_crt_ts = db.Column(db.DateTime(), nullable=False)
     audit_upd_ts = db.Column(db.DateTime(), nullable=True)
+    user_role = db.Column(db.String(10), nullable=False, default='Régulier')
 
     def __init__(self, first_name, last_name, user_email, user_pass, audit_crt_ts):
         self.first_name = first_name
@@ -245,7 +246,7 @@ def list_users():
         return redirect(url_for('login'))
     try:
         user_id = session.get('user_id')
-        admin_user = AppUser.query.filter_by(user_id=user_id, user_email=app.config.get('ADMIN_EMAILID')).first()
+        admin_user = db_user_is_admin(user_id)
         app_users = AppUser.query.order_by(AppUser.first_name).all()
         return render_template('list_users.html', app_users=app_users, admin_user=admin_user)
     except Exception as e:
@@ -257,10 +258,14 @@ def list_users():
 def act_user(user_id):
     if not logged_in():
         return redirect(url_for('login'))
-    if db_upd_user_status(user_id, 'A'):
-        flash("L'utilisateur est activé.")
+    cur_user_id = session.get('user_id')
+    if db_user_is_admin(cur_user_id):
+        if db_upd_user_status(user_id, 'A'):
+            flash("L'utilisateur est activé.")
+        else:
+            flash("Quelque chose n'a pas fonctionné.")
     else:
-        flash("Quelque chose n'a pas fonctionné.")
+        flash("Vous n'êtes pas autorisé à changer le status d'un utilisateur.")
     return redirect(url_for('list_users'))
 
 
@@ -268,10 +273,44 @@ def act_user(user_id):
 def inact_user(user_id):
     if not logged_in():
         return redirect(url_for('login'))
-    if db_upd_user_status(user_id, 'D'):
-        flash("L'utilisateur est désactivé.")
+    cur_user_id = session.get('user_id')
+    if db_user_is_admin(cur_user_id):
+        if db_upd_user_status(user_id, 'D'):
+            flash("L'utilisateur est désactivé.")
+        else:
+            flash("Quelque chose n'a pas fonctionné.")
     else:
-        flash("Quelque chose n'a pas fonctionné.")
+        flash("Vous n'êtes pas autorisé à changer le status d'un utilisateur.")
+    return redirect(url_for('list_users'))
+
+
+@app.route('/set_user_admin/<int:user_id>', methods=['GET', 'POST'])
+def set_user_admin(user_id):
+    if not logged_in():
+        return redirect(url_for('login'))
+    cur_user_id = session.get('user_id')
+    if db_user_is_admin(cur_user_id):
+        if db_upd_user_role(user_id, 'A'):
+            flash("L'utilisateur est maintenant administrateur.")
+        else:
+            flash("Quelque chose n'a pas fonctionné.")
+    else:
+        flash("Vous n'êtes pas autorisé à changer le rôle d'un utilisateur.")
+    return redirect(url_for('list_users'))
+
+
+@app.route('/set_user_regular/<int:user_id>', methods=['GET', 'POST'])
+def set_user_regular(user_id):
+    if not logged_in():
+        return redirect(url_for('login'))
+    cur_user_id = session.get('user_id')
+    if db_user_is_admin(cur_user_id):
+        if db_upd_user_role(user_id, 'R'):
+            flash("L'utilisateur est maintenant un utilisateur régulier.")
+        else:
+            flash("Quelque chose n'a pas fonctionné.")
+    else:
+        flash("Vous n'êtes pas autorisé à changer le rôle d'un utilisateur.")
     return redirect(url_for('list_users'))
 
 
@@ -279,21 +318,24 @@ def inact_user(user_id):
 def del_user(user_id):
     if not logged_in():
         return redirect(url_for('login'))
-    form = DelEntityForm()
-    if form.validate_on_submit():
-        app.logger.debug('Deleting a user')
-        if db_del_user(user_id):
-            flash("L'utilisateur a été effacé.")
+    cur_user_id = session.get('user_id')
+    if db_user_is_admin(cur_user_id):
+        form = DelEntityForm()
+        if form.validate_on_submit():
+            app.logger.debug('Deleting a user')
+            if db_del_user(user_id):
+                flash("L'utilisateur a été effacé.")
+            else:
+                flash("Quelque chose n'a pas fonctionné.")
         else:
-            flash("Quelque chose n'a pas fonctionné.")
-        return redirect(url_for('list_users'))
+            user = db_user_by_id(user_id)
+            if user:
+                return render_template('del_user.html', form=form, user=user)
+            else:
+                flash("L'information n'a pas pu être retrouvée.")
     else:
-        user = db_user_by_id(user_id)
-        if user:
-            return render_template('del_user.html', form=form, user=user)
-        else:
-            flash("L'information n'a pas pu être retrouvée.")
-            return redirect(url_for('list_users'))
+        flash("Vous n'êtes pas autorisé à supprimer un utilisateur.")
+    return redirect(url_for('list_users'))
 
 
 @app.route('/list_mesures_pa')
@@ -441,8 +483,8 @@ def list_mesures_poids():
     # Préférable d'utiliser un graphe DateTimeLine que Line.
     serie = [(mes.mes_ts, mes.poids) for mes in mesures_poids]
     chart = pygal.DateTimeLine(title="Poids", height=300, disable_xml_declaration=True, dynamic_print_values=True,
-        x_label_rotation=35, truncate_label=-1,
-        x_value_formatter=lambda dt: dt.strftime('%Y-%m-%d'))
+                               x_label_rotation=35, truncate_label=-1,
+                               x_value_formatter=lambda dt: dt.strftime('%Y-%m-%d'))
     chart.add("Poids", serie)
 
     # create a new plot with a title and axis labels
@@ -542,6 +584,9 @@ def db_add_user(first_name, last_name, user_email, user_pass):
         user = AppUser(first_name, last_name, user_email, user_pass, audit_crt_ts)
         if user_email == app.config.get('ADMIN_EMAILID'):
             user.activated_ts = datetime.now()
+            user.user_role = 'SuperAdmin'
+        else:
+            user.user_role = 'Régulier'
         db.session.add(user)
         db.session.commit()
         return True
@@ -564,6 +609,20 @@ def db_upd_user_status(user_id, status):
         return False
 
 
+def db_upd_user_role(user_id, user_role):
+    try:
+        user = AppUser.query.get(user_id)
+        if user_role == 'A':
+            user.user_role = 'Admin'
+        else:
+            user.user_role = 'Régulier'
+        db.session.commit()
+        return True
+    except Exception as e:
+        app.logger.error('Error: ' + str(e))
+        return False
+
+
 def db_user_exists(user_email):
     app.logger.debug('Entering user_exists with: ' + user_email)
     try:
@@ -572,6 +631,22 @@ def db_user_exists(user_email):
             return False
         else:
             return True
+    except Exception as e:
+        app.logger.error('Error: ' + str(e))
+        return False
+
+
+def db_user_is_admin(user_id):
+    app.logger.debug('Entering db_user_is_admin with: ' + str(user_id))
+    try:
+        user = AppUser.query.get(user_id)
+        if user is None:
+            return False
+        else:
+            if user.user_role in ['Admin', 'SuperAdmin']:
+                return True
+            else:
+                return False
     except Exception as e:
         app.logger.error('Error: ' + str(e))
         return False
@@ -634,7 +709,7 @@ def db_change_password(user_email, new_password):
     try:
         user = AppUser.query.filter_by(user_email=user_email).first()
         if user is None:
-            flash("Mot de passe inchangé. L'usager n'a pas été retrouvé.")
+            flash("Mot de passe inchangé. L'utilisateur n'a pas été retrouvé.")
             return False
         else:
             user.user_pass = generate_password_hash(new_password)
